@@ -18,11 +18,19 @@
       --coming-opacity:0; --coming-y:44px;
     }
     * { box-sizing:border-box; }
-    html,body { margin:0; background:#000; color:#fff; }
-    html { scroll-behavior:smooth; }
+    html,body { margin:0; height:100%; background:#000; color:#fff; overflow:hidden; }
+    html { scroll-behavior:smooth; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.55) rgba(255,255,255,.08); }
+    html::-webkit-scrollbar,body::-webkit-scrollbar { width:10px; }
+    html::-webkit-scrollbar-track,body::-webkit-scrollbar-track { background:rgba(255,255,255,.06); }
+    html::-webkit-scrollbar-thumb,body::-webkit-scrollbar-thumb { background:rgba(255,255,255,.48); border-radius:999px; border:2px solid #000; }
+    html::-webkit-scrollbar-thumb:hover,body::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,.68); }
     body { min-height:100vh; overflow-x:hidden; font-family:"Manrope",Arial,sans-serif; }
     img { display:block; }
-    .page { position:relative; background:#000; }
+    .page { position:relative; background:#000; height:100vh; overflow-y:scroll; overflow-x:hidden; overscroll-behavior:none; scrollbar-width:auto; scrollbar-color:rgba(255,255,255,.38) #000; }
+    .page::-webkit-scrollbar { width:10px; }
+    .page::-webkit-scrollbar-track { background:#000; }
+    .page::-webkit-scrollbar-thumb { background:rgba(255,255,255,.38); border-radius:999px; border:2px solid #000; }
+    .page::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,.55); }
     .section-frame { position:fixed; inset:14px; border:1px solid rgba(255,255,255,.07); pointer-events:none; z-index:30; mix-blend-mode:screen; }
 
     .story { position:relative; height:340vh; background:#000; }
@@ -48,8 +56,9 @@
     }
 
     .coming-copy {
-      position:absolute; inset:0; width:min(920px,calc(100% - 40px)); height:100%; margin:0 auto;
-      display:grid; align-content:center; justify-items:center; gap:12px;
+      position:absolute; top:0; bottom:0; left:50%; width:min(920px,calc(100% - 40px)); height:100%; margin:0;
+      transform:translateX(-50%);
+      display:grid; align-content:center; justify-items:center; gap:12px; text-align:center;
       padding-top:var(--coming-y);
       opacity:var(--coming-opacity); pointer-events:none; z-index:4;
       text-rendering:optimizeLegibility; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
@@ -79,6 +88,8 @@
     .reserve-hp { position:absolute!important; left:-9999px!important; width:1px!important; height:1px!important; opacity:0!important; pointer-events:none!important; }
 
     @media (min-width:901px) {
+      .coming-copy { left:50%; right:auto; width:min(1000px,calc(100% - 80px)); transform:translateX(-50%); }
+      .coming-copy h1,.coming-copy .tagline,.coming-copy .season { width:100%; text-align:center; }
       .coming-copy h1 { white-space:nowrap; }
       .coming-copy .tagline { font-size:clamp(13px,1.35vw,25px); }
       .coming-copy .season { font-size:19px; }
@@ -100,24 +111,11 @@
       .reserve-trigger { margin-top:14px; }
     }
 
-    .story-play {
-      position:fixed; left:50%; bottom:34px; transform:translateX(-50%); z-index:60;
-      min-width:170px; padding:13px 18px; border:1px solid rgba(255,255,255,.34);
-      border-radius:999px; background:rgba(0,0,0,.38); color:#fff;
-      backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-      font:500 11px/1 "Manrope",Arial,sans-serif; letter-spacing:.24em; text-transform:uppercase;
-      cursor:pointer; transition:background .3s ease,border-color .3s ease,opacity .3s ease;
-    }
-    .story-play:hover,.story-play:focus-visible { background:rgba(255,255,255,.10); border-color:rgba(255,255,255,.7); outline:none; }
-    .story-play.is-playing { opacity:.62; }
-    @media (max-width:640px) { .story-play { bottom:22px; min-width:150px; padding:12px 15px; font-size:10px; } }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
   </style>
 </head>
 <body>
   <div class="page">
-    <button class="story-play" id="storyPlay" type="button" aria-label="Play the GLF Reserve scroll experience">Play Experience</button>
-
     <div class="section-frame" aria-hidden="true"></div>
     <section class="story" id="storySection" aria-label="GLF Reserve scroll animation">
       <div class="story-stage" id="storyStage">
@@ -159,6 +157,7 @@
 
   <script>
     const root=document.documentElement;
+    const pageScroller=document.querySelector('.page');
     const story=document.getElementById('storySection');
     const assembly=document.getElementById('logoAssembly');
     const letters=[...document.querySelectorAll('.logo-letter')];
@@ -171,10 +170,16 @@
     const reserveSubmit=document.getElementById('reserveSubmit');
     const reserveStatus=document.getElementById('reserveStatus');
     const reserveCompany=document.getElementById('reserveCompany');
-    const storyPlay=document.getElementById('storyPlay');
     let autoScrollFrame=0;
     let autoScrolling=false;
+    let autoStarted=false;
     let previousScrollBehavior='';
+    if('scrollRestoration' in history) history.scrollRestoration='manual';
+
+    const setPageScroll=(y)=>{
+      if(!pageScroller) return;
+      pageScroller.scrollTop=y;
+    };
 
     const clamp=(v,a,b)=>Math.min(Math.max(v,a),b);
     const lerp=(a,b,t)=>a+(b-a)*t;
@@ -238,82 +243,90 @@
       logoTagline.style.opacity=tagT.toFixed(3);
       logoTagline.style.transform=`translateY(${lerp(18,0,tagT)}px)`;
 
-      // Once the exact logo is complete, move the whole finished logo to the LEFT.
-      const moveT=smoothstep(.72,.89,p);
-      const leftTravel=innerWidth*(innerWidth<700?.72:.60);
+      // Once the exact logo is complete, move the whole finished logo fully off-screen to the LEFT.
+      // Travel distance includes half the viewport + half the logo width + a safety margin,
+      // so no edge of GLF RESERVE can remain visible at the end of the exit.
+      const moveT=smoothstep(.72,.90,p);
+      const logoWidth=assembly.getBoundingClientRect().width || Math.min(1050,innerWidth*.92);
+      const leftTravel=(innerWidth*.5)+(logoWidth*.5)+80;
       const groupX=-leftTravel*moveT;
-      const groupFade=1-smoothstep(.84,.94,p);
       assembly.style.transform=`translate(calc(-50% + ${groupX}px),-50%)`;
-      assembly.style.opacity=groupFade.toFixed(3);
 
-      // Final state: Coming Soon settles and stays exactly in the center on black.
-      const coming=smoothstep(.84,.96,p);
+      // Keep the logo fully visible while it travels. Hide it only after it is completely outside.
+      const logoGone=smoothstep(.90,.915,p);
+      assembly.style.opacity=(1-logoGone).toFixed(3);
+
+      // Coming Soon begins only after the GLF RESERVE logo has completely exited the viewport.
+      const coming=smoothstep(.925,.985,p);
       root.style.setProperty('--coming-opacity',coming.toFixed(3));
       root.style.setProperty('--coming-y',`${Math.round(lerp(46,0,coming))}px`);
-      comingCopy.classList.toggle('is-interactive',p>.91);
+      comingCopy.classList.toggle('is-interactive',p>.965);
     }
 
 
-
-    function stopAutoScroll(resetLabel=true){
-      if(autoScrollFrame) cancelAnimationFrame(autoScrollFrame);
-      autoScrollFrame=0;
-      autoScrolling=false;
-      document.documentElement.style.scrollBehavior=previousScrollBehavior;
-      storyPlay.classList.remove('is-playing');
-      if(resetLabel) storyPlay.textContent='Start Experience';
+    function getStoryEnd(){
+      const start=story.offsetTop;
+      const viewportHeight=pageScroller?pageScroller.clientHeight:innerHeight;
+      const scrollHeight=pageScroller?pageScroller.scrollHeight:document.documentElement.scrollHeight;
+      const storyEnd=start+story.offsetHeight-viewportHeight;
+      const maxScroll=Math.max(0,scrollHeight-viewportHeight);
+      return Math.max(start,Math.min(storyEnd,maxScroll));
     }
 
     function playStory(){
-      stopAutoScroll();
+      if(autoScrollFrame) cancelAnimationFrame(autoScrollFrame);
       const start=story.offsetTop;
-      const storyEnd=start+story.offsetHeight-innerHeight;
-      const maxScroll=Math.max(0,document.documentElement.scrollHeight-innerHeight);
-      const end=Math.min(storyEnd,maxScroll);
-      const duration=13000;
+      const duration=14500;
 
-      // IMPORTANT: disable CSS native smooth scrolling while our RAF animation is driving scroll.
-      // Otherwise every tiny scrollTo() gets smoothed again by the browser and the two systems fight.
-      previousScrollBehavior=document.documentElement.style.scrollBehavior;
-      document.documentElement.style.scrollBehavior='auto';
-
-      // Reset to the exact beginning first, then play the full scroll journey.
-      scrollTo(0,start);
+      // The page experience starts automatically as soon as the page is ready.
+      previousScrollBehavior=pageScroller?pageScroller.style.scrollBehavior:'';
+      if(pageScroller) pageScroller.style.scrollBehavior='auto';
+      setPageScroll(start);
       update();
-      storyPlay.classList.add('is-playing');
-      storyPlay.textContent='Playing';
       autoScrolling=true;
 
-      const started=performance.now()+450;
+      const started=performance.now()+160;
       const tick=(now)=>{
         if(!autoScrolling) return;
         if(now<started){ autoScrollFrame=requestAnimationFrame(tick); return; }
+
+        // Recalculate the true bottom on every frame so late layout/font changes
+        // can never make the cinematic scroll stop short.
+        const end=getStoryEnd();
         const t=clamp((now-started)/duration,0,1);
-        // Gentle cinematic ease-in/ease-out while preserving every scroll-linked frame.
         const eased=t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
-        scrollTo(0,lerp(start,end,eased));
-        if(t<1) autoScrollFrame=requestAnimationFrame(tick);
-        else {
+        setPageScroll(lerp(start,end,eased));
+        update();
+
+        if(t<1){
+          autoScrollFrame=requestAnimationFrame(tick);
+        }else{
+          // Force the exact final landing and verify it after layout settles.
+          const finalEnd=getStoryEnd();
+          setPageScroll(finalEnd);
+          update();
+          requestAnimationFrame(()=>{
+            const settledEnd=getStoryEnd();
+            setPageScroll(settledEnd);
+            update();
+          });
           autoScrolling=false;
           autoScrollFrame=0;
-          document.documentElement.style.scrollBehavior=previousScrollBehavior;
-          storyPlay.classList.remove('is-playing');
-          storyPlay.textContent='Start Experience';
+          if(pageScroller) pageScroller.style.scrollBehavior=previousScrollBehavior;
         }
       };
       autoScrollFrame=requestAnimationFrame(tick);
     }
 
-    storyPlay.addEventListener('click',playStory);
-
-    // Any deliberate manual navigation immediately returns control to the visitor.
-    ['wheel','touchstart','pointerdown','keydown'].forEach(type=>{
-      addEventListener(type,(e)=>{
-        if(!autoScrolling) return;
-        if(type==='pointerdown' && e.target===storyPlay) return;
-        stopAutoScroll();
-      },{passive:true});
-    });
+    // Manual scrolling is intentionally disabled; the cinematic sequence controls the page position.
+    const blockManualScroll=(e)=>e.preventDefault();
+    addEventListener('wheel',blockManualScroll,{passive:false});
+    addEventListener('touchmove',blockManualScroll,{passive:false});
+    addEventListener('keydown',(e)=>{
+      const tag=(document.activeElement&&document.activeElement.tagName)||'';
+      if(['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
+      if(['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(e.key)) e.preventDefault();
+    },{passive:false});
 
     reserveTrigger.addEventListener('click',()=>{
       const open=!reserveSignup.classList.contains('is-open');
@@ -375,9 +388,40 @@
       }
     });
 
-    addEventListener('scroll',update,{passive:true});
+    if(pageScroller) pageScroller.addEventListener('scroll',update,{passive:true});
     addEventListener('resize',update);
-    addEventListener('load',update);
+
+    function startAutoExperience(){
+      if(autoStarted) return;
+      autoStarted=true;
+      setPageScroll(0);
+      update();
+
+      // Wait for the first fully laid-out frames, then start automatically.
+      requestAnimationFrame(()=>{
+        requestAnimationFrame(()=>{
+          setTimeout(()=>{
+            setPageScroll(0);
+            playStory();
+          },180);
+        });
+      });
+    }
+
+    // Start after the full page is ready so the scroll range is final.
+    // pageshow is kept as a fallback for browser back/forward cache restores.
+    if(document.readyState==='complete'){
+      startAutoExperience();
+    }else{
+      addEventListener('load',startAutoExperience,{once:true});
+    }
+    addEventListener('pageshow',startAutoExperience,{once:true});
+    document.addEventListener('visibilitychange',()=>{
+      if(!document.hidden && !autoScrolling && pageScroller && pageScroller.scrollTop===0){
+        autoStarted=false;
+        startAutoExperience();
+      }
+    });
     update();
   </script>
 </body>
