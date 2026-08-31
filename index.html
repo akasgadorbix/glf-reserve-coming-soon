@@ -67,17 +67,17 @@
     .coming-copy h1 { margin:0; font-family:"Cormorant Garamond",Georgia,serif; font-size:clamp(52px,9vw,128px); line-height:.9; font-weight:600; letter-spacing:.10em; text-transform:uppercase; text-align:center; }
     .coming-copy .tagline { margin:2px 0 0; font-size:clamp(13px,1.35vw,18px); line-height:1.2; font-weight:400; letter-spacing:.22em; text-transform:uppercase; color:#f2f2f2; text-align:center; }
     .coming-copy .season { margin:8px 0 0; font-size:10px; line-height:1; font-weight:500; letter-spacing:.34em; text-transform:uppercase; color:#d8d8d8; }
-    .reserve-trigger { margin-top:18px; padding:0 0 5px; border:0; border-bottom:1px solid rgba(255,255,255,.28); background:transparent; color:#e6e6e6; font:500 10px/1 "Manrope",Arial,sans-serif; letter-spacing:.30em; text-transform:uppercase; cursor:pointer; transition:color .3s ease,border-color .3s ease; }
+    .reserve-trigger { margin-top:18px; padding:8px 0 7px; touch-action:manipulation; pointer-events:auto; border:0; border-bottom:1px solid rgba(255,255,255,.28); background:transparent; color:#e6e6e6; font:500 10px/1 "Manrope",Arial,sans-serif; letter-spacing:.30em; text-transform:uppercase; cursor:pointer; transition:color .3s ease,border-color .3s ease; }
     .reserve-trigger:hover,.reserve-trigger:focus-visible { color:#fff; border-color:rgba(255,255,255,.75); outline:none; }
     .reserve-signup { width:min(430px,90vw); max-height:0; margin-top:0; overflow:hidden; opacity:0; transform:translateY(8px); transition:max-height .55s ease,opacity .45s ease,transform .45s ease,margin-top .45s ease; }
     .reserve-signup.is-open { max-height:280px; margin-top:12px; opacity:1; transform:translateY(0); }
     .reserve-signup p { margin:0 0 14px; font-family:"Cormorant Garamond",Georgia,serif; font-size:clamp(15px,1.45vw,19px); font-weight:500; line-height:1.3; letter-spacing:.025em; color:#f0f0f0; text-align:center; }
-    .reserve-email { width:100%; padding:10px 2px; border:0; border-bottom:1px solid rgba(255,255,255,.32); border-radius:0; outline:none; background:transparent; color:#fff; font:400 13px/1.4 "Manrope",Arial,sans-serif; letter-spacing:.04em; text-align:center; }
+    .reserve-email { width:100%; padding:12px 4px; border:0; border-bottom:1px solid rgba(255,255,255,.32); border-radius:0; outline:none; background:transparent; color:#fff; font:400 16px/1.4 "Manrope",Arial,sans-serif; letter-spacing:.04em; text-align:center; pointer-events:auto; touch-action:manipulation; -webkit-user-select:text; user-select:text; }
     .reserve-email::placeholder { color:#a8a8a8; opacity:1; }
     .reserve-email:focus { border-bottom-color:rgba(255,255,255,.8); }
     .reserve-form { width:100%; display:grid; gap:12px; }
     .reserve-submit {
-      justify-self:center; padding:9px 0 5px; border:0; border-bottom:1px solid rgba(255,255,255,.28);
+      justify-self:center; padding:11px 4px 8px; touch-action:manipulation; pointer-events:auto; border:0; border-bottom:1px solid rgba(255,255,255,.28);
       background:transparent; color:#e6e6e6; font:500 10px/1 "Manrope",Arial,sans-serif;
       letter-spacing:.30em; text-transform:uppercase; cursor:pointer;
       transition:color .3s ease,border-color .3s ease,opacity .3s ease;
@@ -109,7 +109,10 @@
       .coming-copy { width:calc(100% - 30px); gap:10px; }
       .coming-copy h1 { font-size:clamp(44px,14vw,72px); letter-spacing:.08em; }
       .coming-copy .tagline { font-size:11px; letter-spacing:.18em; }
-      .reserve-trigger { margin-top:14px; }
+      .reserve-trigger { margin-top:14px; min-height:44px; }
+      .reserve-email { min-height:48px; font-size:16px; }
+      .reserve-submit { min-height:44px; }
+      .reserve-signup, .reserve-form, .reserve-email, .reserve-submit { pointer-events:auto; }
     }
 
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
@@ -320,7 +323,14 @@
     }
 
     // Manual scrolling is intentionally disabled; the cinematic sequence controls the page position.
-    const blockManualScroll=(e)=>e.preventDefault();
+    const isInteractiveTarget=(target)=>{
+      if(!target || !target.closest) return false;
+      return Boolean(target.closest('input,textarea,select,button,form,.reserve-signup,.coming-copy'));
+    };
+    const blockManualScroll=(e)=>{
+      if(isInteractiveTarget(e.target)) return;
+      e.preventDefault();
+    };
     addEventListener('wheel',blockManualScroll,{passive:false});
     addEventListener('touchmove',blockManualScroll,{passive:false});
     addEventListener('keydown',(e)=>{
@@ -334,7 +344,7 @@
       reserveSignup.classList.toggle('is-open',open);
       reserveSignup.setAttribute('aria-hidden',String(!open));
       reserveTrigger.setAttribute('aria-expanded',String(open));
-      if(open) setTimeout(()=>reserveEmail.focus({preventScroll:true}),350);
+      if(open) setTimeout(()=>{ try{ reserveEmail.focus({preventScroll:true}); }catch(_){ reserveEmail.focus(); } },220);
     });
 
     reserveForm.addEventListener('submit',async(e)=>{
@@ -351,6 +361,7 @@
 
       reserveSubmit.disabled=true;
       reserveSubmit.textContent='Joining...';
+      reserveStatus.textContent='Thank you — adding you to the Reserve…';
 
       try{
         let browserCountryCode='';
