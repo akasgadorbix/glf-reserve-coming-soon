@@ -85,6 +85,8 @@
     .reserve-submit:hover,.reserve-submit:focus-visible { color:#fff; border-color:rgba(255,255,255,.75); outline:none; }
     .reserve-submit:disabled { opacity:.45; cursor:default; }
     .reserve-status { min-height:22px; margin:4px 0 0!important; font-family:"Manrope",Arial,sans-serif!important; font-size:11px!important; line-height:1.5!important; letter-spacing:.08em!important; color:#f2f2f2!important; text-align:center!important; overflow:visible!important; }
+    .reserve-final-status { display:none; margin:14px 0 0; font-family:"Manrope",Arial,sans-serif; font-size:12px; line-height:1.5; letter-spacing:.04em; color:#f2f2f2; text-align:center; }
+    .reserve-final-status.is-visible { display:block; }
     .reserve-hp { position:absolute!important; left:-9999px!important; width:1px!important; height:1px!important; opacity:0!important; pointer-events:none!important; }
 
     @media (min-width:901px) {
@@ -153,6 +155,7 @@
                 <p class="reserve-status" id="reserveStatus" role="status" aria-live="polite"></p>
               </form>
             </div>
+            <p class="reserve-final-status" id="reserveFinalStatus" role="status" aria-live="polite"></p>
           </div>
         </div>
       </div>
@@ -173,6 +176,7 @@
     const reserveForm=document.getElementById('reserveForm');
     const reserveSubmit=document.getElementById('reserveSubmit');
     const reserveStatus=document.getElementById('reserveStatus');
+    const reserveFinalStatus=document.getElementById('reserveFinalStatus');
     const reserveCompany=document.getElementById('reserveCompany');
     let autoScrollFrame=0;
     let autoScrolling=false;
@@ -359,9 +363,17 @@
         return;
       }
 
+      // As soon as a valid email is submitted, hide the entire expanded signup area immediately.
+      // The API request continues in the background; the main "Join the Reserve" trigger stays visible.
+      reserveSignup.classList.remove('is-open');
+      reserveSignup.setAttribute('aria-hidden','true');
+      reserveTrigger.setAttribute('aria-expanded','false');
+      reserveFinalStatus.textContent='Thank you. You are on the Reserve list.';
+      reserveFinalStatus.classList.add('is-visible');
+
       reserveSubmit.disabled=true;
       reserveSubmit.textContent='Joining...';
-      reserveStatus.textContent='Thank you — adding you to the Reserve…';
+      reserveStatus.textContent='';
 
       try{
         let browserCountryCode='';
@@ -387,13 +399,15 @@
         const data=await response.json().catch(()=>({}));
         if(!response.ok) throw new Error(data.error||'Unable to join right now.');
 
-        reserveStatus.textContent=data.alreadyJoined
+        reserveFinalStatus.textContent=data.alreadyJoined
           ? 'You are already on the Reserve list.'
           : 'Thank you. You are on the Reserve list.';
 
         if(!data.alreadyJoined) reserveForm.reset();
+
       }catch(error){
-        reserveStatus.textContent=error.message||'Unable to join right now. Please try again.';
+        reserveFinalStatus.textContent=error.message||'Unable to join right now. Please try again.';
+        reserveFinalStatus.classList.add('is-visible');
       }finally{
         reserveSubmit.disabled=false;
         reserveSubmit.textContent='Join the Reserve';
