@@ -26,7 +26,9 @@
     html::-webkit-scrollbar-thumb:hover,body::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,.68); }
     body { min-height:100vh; overflow-x:hidden; font-family:"Manrope",Arial,sans-serif; }
     img { display:block; }
-    .page { position:relative; background:#000; height:100vh; overflow-y:scroll; overflow-x:hidden; overscroll-behavior:none; scrollbar-width:auto; scrollbar-color:rgba(255,255,255,.38) #000; }
+    /* Keep this as a programmatic scroll container. `overflow:hidden` still
+       allows scrollTop updates from JavaScript, but blocks Safari touch-panning. */
+    .page { position:relative; background:#000; height:100vh; overflow-y:hidden; overflow-x:hidden; overscroll-behavior:none; -webkit-overflow-scrolling:auto; touch-action:pan-x pinch-zoom; scrollbar-width:none; }
     .page::-webkit-scrollbar { width:10px; }
     .page::-webkit-scrollbar-track { background:#000; }
     .page::-webkit-scrollbar-thumb { background:rgba(255,255,255,.38); border-radius:999px; border:2px solid #000; }
@@ -117,6 +119,17 @@
       .reserve-signup, .reserve-form, .reserve-email, .reserve-submit { pointer-events:auto; }
     }
 
+    /* Stable mobile/tablet viewport sizing for Safari and Chrome. Older
+       browsers keep the vh fallback above. */
+    @supports (height:100svh) {
+      body { min-height:100svh; }
+      .page { height:100svh; }
+      .story { height:340svh; }
+      .story-stage, .story-center { min-height:100svh; }
+      @media (max-width:900px) { .story { height:312svh; } }
+      @media (max-width:640px) { .story { height:285svh; } }
+    }
+
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
   </style>
 </head>
@@ -184,8 +197,10 @@
     let previousScrollBehavior='';
     if('scrollRestoration' in history) history.scrollRestoration='manual';
 
+    let lockedPageScroll=0;
     const setPageScroll=(y)=>{
       if(!pageScroller) return;
+      lockedPageScroll=y;
       pageScroller.scrollTop=y;
     };
 
@@ -207,7 +222,7 @@
       {p:1.00,c:['#000000','#000000','#000000','#000000']}
     ];
     function paletteAt(p){
-      let s=palettes[0],e=palettes.at(-1);
+      let s=palettes[0],e=palettes[palettes.length-1];
       for(let i=0;i<palettes.length-1;i++) if(p>=palettes[i].p&&p<=palettes[i+1].p){s=palettes[i];e=palettes[i+1];break;}
       const t=clamp((p-s.p)/(e.p-s.p||1),0,1);
       return s.c.map((c,i)=>mixColor(c,e.c[i],t));
@@ -215,7 +230,8 @@
 
     function update(){
       const rect=story.getBoundingClientRect();
-      const total=story.offsetHeight-innerHeight;
+      const viewportHeight=pageScroller?pageScroller.clientHeight:innerHeight;
+      const total=story.offsetHeight-viewportHeight;
       const p=clamp(total>0?(-rect.top)/total:0,0,1);
 
       // background follows the same dark green → warm brown → silver → black journey
@@ -225,7 +241,8 @@
 
       // Each exact letter starts very close to the viewer (huge / out of frame),
       // then falls back into the screen and settles into its exact logo position.
-      const assembleStart=.015;
+      // Start G roughly 0.5 seconds after DOM readiness instead of ~1.5 seconds.
+      const assembleStart=.0025;
       const step=.052;
       const duration=.15;
 
@@ -236,7 +253,7 @@
 
         const startScale=innerWidth<700?10.5:13.5;
         const scale=lerp(startScale,1,t);
-        const y=lerp(-(innerHeight*.30+i*10),0,t);
+        const y=lerp(-(viewportHeight*.30+i*10),0,t);
         const z=lerp(900,0,t);
         const tilt=lerp((i%2===0?-7:7),0,t);
         const blur=lerp(22,0,t);
@@ -293,7 +310,7 @@
       update();
       autoScrolling=true;
 
-      const started=performance.now()+160;
+      const started=performance.now();
       const tick=(now)=>{
         if(!autoScrolling) return;
         if(now<started){ autoScrollFrame=requestAnimationFrame(tick); return; }
@@ -327,16 +344,18 @@
     }
 
     // Manual scrolling is intentionally disabled; the cinematic sequence controls the page position.
-    const isInteractiveTarget=(target)=>{
-      if(!target || !target.closest) return false;
-      return Boolean(target.closest('input,textarea,select,button,form,.reserve-signup,.coming-copy'));
+    const blockManualWheel=(e)=>{
+      // Preserve browser zoom gestures while preventing wheel/trackpad scrolling.
+      if(e.ctrlKey||e.metaKey) return;
+      if(e.cancelable) e.preventDefault();
     };
-    const blockManualScroll=(e)=>{
-      if(isInteractiveTarget(e.target)) return;
-      e.preventDefault();
+    const blockManualTouchScroll=(e)=>{
+      // Preserve two-finger pinch zoom, but never allow one-finger page panning.
+      if(e.touches&&e.touches.length>1) return;
+      if(e.cancelable) e.preventDefault();
     };
-    addEventListener('wheel',blockManualScroll,{passive:false});
-    addEventListener('touchmove',blockManualScroll,{passive:false});
+    addEventListener('wheel',blockManualWheel,{passive:false});
+    addEventListener('touchmove',blockManualTouchScroll,{passive:false});
     addEventListener('keydown',(e)=>{
       const tag=(document.activeElement&&document.activeElement.tagName)||'';
       if(['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
@@ -414,7 +433,15 @@
       }
     });
 
-    if(pageScroller) pageScroller.addEventListener('scroll',update,{passive:true});
+    if(pageScroller) pageScroller.addEventListener('scroll',()=>{
+      // Safari can occasionally move an overflow container during an active
+      // gesture. Snap any non-scripted movement back to the animation position.
+      if(Math.abs(pageScroller.scrollTop-lockedPageScroll)>1){
+        pageScroller.scrollTop=lockedPageScroll;
+        return;
+      }
+      update();
+    },{passive:true});
     addEventListener('resize',update);
 
     function startAutoExperience(){
@@ -423,24 +450,20 @@
       setPageScroll(0);
       update();
 
-      // Wait for the first fully laid-out frames, then start automatically.
+      // Two layout frames are enough for consistent dimensions across Safari,
+      // Chrome, phones, tablets, laptops and desktop screens.
       requestAnimationFrame(()=>{
         requestAnimationFrame(()=>{
-          setTimeout(()=>{
-            setPageScroll(0);
-            playStory();
-          },180);
+          setPageScroll(0);
+          playStory();
         });
       });
     }
 
-    // Start after the full page is ready so the scroll range is final.
+    // Begin as soon as the DOM is ready; embedded logo assets need no extra wait.
     // pageshow is kept as a fallback for browser back/forward cache restores.
-    if(document.readyState==='complete'){
-      startAutoExperience();
-    }else{
-      addEventListener('load',startAutoExperience,{once:true});
-    }
+    if(document.readyState==='loading') addEventListener('DOMContentLoaded',startAutoExperience,{once:true});
+    else startAutoExperience();
     addEventListener('pageshow',startAutoExperience,{once:true});
     document.addEventListener('visibilitychange',()=>{
       if(!document.hidden && !autoScrolling && pageScroller && pageScroller.scrollTop===0){
