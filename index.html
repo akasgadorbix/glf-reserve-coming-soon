@@ -6,6 +6,8 @@
   <meta name="theme-color" content="#000000" />
   <meta name="description" content="GLF Reserve by Ginger Lily Farms — cinematic scroll landing page." />
   <title>GLF Reserve — Coming Soon</title>
+  <!-- FAVICON: keep favicon.ico next to this HTML file -->
+  <link rel="icon" href="imges/glf_Logo.webp" sizes="any">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -131,6 +133,27 @@
     }
 
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
+
+
+
+    
+/* FINAL COMING SOON IMAGE — CHANGE ONLY THE src ATTRIBUTE BELOW.
+   The original animated gradient remains unchanged until Coming Soon. */
+.story-stage::before { content: none; }
+.final-background-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+  z-index: 1;
+  opacity: var(--coming-opacity);
+  pointer-events: none;
+}
+.story-center { position: relative; z-index: 2; }
+
   </style>
 </head>
 <body>
@@ -138,6 +161,10 @@
     <div class="section-frame" aria-hidden="true"></div>
     <section class="story" id="storySection" aria-label="GLF Reserve scroll animation">
       <div class="story-stage" id="storyStage">
+        <!-- FINAL SCREEN BACKGROUND: change the src here if needed.
+             Currently expects chandanweb_3/glf/imge1glf.webp -->
+        <img class="final-background-image" id="finalBackgroundImage"
+             src="imges/imge1glf.webp" alt="" aria-hidden="true">
         <div class="story-grain" aria-hidden="true"></div>
         <div class="story-center">
           <div class="logo-assembly" id="logoAssembly" aria-label="GLF Reserve by Ginger Lily Farms">
@@ -301,7 +328,11 @@
     function playStory(){
       if(autoScrollFrame) cancelAnimationFrame(autoScrollFrame);
       const start=story.offsetTop;
-      const duration=13000;
+      // CHANGE TIMINGS HERE (milliseconds)
+      const logoBuildMs=7000; // logo assembles, including tagline
+      const logoHoldMs=1000;  // completed logo stays still for 2 seconds
+      const exitMs=1800;      // logo exits left and Coming Soon appears
+      const duration=logoBuildMs+logoHoldMs+exitMs;
 
       // The page experience starts automatically as soon as the page is ready.
       previousScrollBehavior=pageScroller?pageScroller.style.scrollBehavior:'';
@@ -318,12 +349,21 @@
         // Recalculate the true bottom on every frame so late layout/font changes
         // can never make the cinematic scroll stop short.
         const end=getStoryEnd();
-        const t=clamp((now-started)/duration,0,1);
-        const eased=t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
-        setPageScroll(lerp(start,end,eased));
+        const elapsed=clamp(now-started,0,duration);
+        const easeInOut=t=>t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+        let storyProgress;
+        if(elapsed<logoBuildMs){
+          storyProgress=.72*easeInOut(elapsed/logoBuildMs);
+        }else if(elapsed<logoBuildMs+logoHoldMs){
+          storyProgress=.72; // exact 2-second pause; logo does not move
+        }else{
+          const exitProgress=clamp((elapsed-logoBuildMs-logoHoldMs)/exitMs,0,1);
+          storyProgress=.72+.28*easeInOut(exitProgress);
+        }
+        setPageScroll(lerp(start,end,storyProgress));
         update();
 
-        if(t<1){
+        if(elapsed<duration){
           autoScrollFrame=requestAnimationFrame(tick);
         }else{
           // Force the exact final landing and verify it after layout settles.
