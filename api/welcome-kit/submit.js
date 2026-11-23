@@ -1,22 +1,40 @@
 
-const { validateToken } = require("./_token");
+"use strict";
 
-const validFragrances = new Set([
+/*
+ GLF RESERVE — COMMON LINK WELCOME KIT API
+
+ Public form:
+ https://glfreserve.com/welcome-kit/
+
+ Saves to Akash's Google Sheet2 through
+ GLF Reserve - Welcome Kit LIVE Apps Script.
+
+ No personal token required.
+*/
+
+const VALID_FRAGRANCES = new Set([
   "Santal Reserve",
   "Citrus Hinoki",
   "Amber Coast",
   "FREE"
 ]);
 
-function clean(value, max = 500) {
-  return typeof value === "string"
-    ? value.trim().slice(0, max)
-    : "";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function clean(value, maxLength = 500) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim().slice(0, maxLength);
 }
 
 module.exports = async function handler(req, res) {
+
   res.setHeader("Cache-Control", "no-store");
 
+  // Only POST requests
   if (req.method !== "POST") {
     return res.status(405).json({
       success: false,
@@ -24,40 +42,51 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  const body = req.body;
-
-  if (!body || typeof body !== "object") {
+  // Validate request body
+  if (
+    !req.body ||
+    typeof req.body !== "object" ||
+    Array.isArray(req.body)
+  ) {
     return res.status(400).json({
       success: false,
-      error: "Invalid form submission"
+      error: "Invalid request"
     });
   }
 
-  // Verify the personal welcome link
-  const verified = validateToken(body.token);
-
-  if (!verified) {
-    return res.status(401).json({
+  // Basic honeypot spam protection
+  if (req.body.company) {
+    return res.status(400).json({
       success: false,
-      error: "Invalid or expired welcome link"
+      error: "Invalid request"
     });
   }
 
-  // Email comes from verified token, not user input
+  // Collect form data
   const data = {
-    name: clean(body.fullName, 120),
-    email: verified.email,
-    fragrance: clean(body.fragrance, 60),
-    address: clean(body.address, 500),
-    city: clean(body.city, 100),
-    state: clean(body.state, 100),
-    postal: clean(body.postal, 40),
-    country: clean(body.country, 100)
+    name: clean(req.body.fullName, 120),
+
+    email: clean(req.body.email, 254)
+      .toLowerCase(),
+
+    fragrance: clean(req.body.fragrance, 60),
+
+    address: clean(req.body.address, 500),
+
+    city: clean(req.body.city, 100),
+
+    state: clean(req.body.state, 100),
+
+    postal: clean(req.body.postal, 40),
+
+    country: clean(req.body.country, 100)
   };
 
+  // Validate fields
   if (
     !data.name ||
-    !validFragrances.has(data.fragrance) ||
+    !EMAIL_RE.test(data.email) ||
+    !VALID_FRAGRANCES.has(data.fragrance) ||
     !data.address ||
     !data.city ||
     !data.state ||
@@ -70,77 +99,93 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  const scriptUrl = process.env.GLF_SHEET_WEBAPP_URL;
-  const secret = process.env.GLF_API_SECRET;
+  // Private environment variables from Vercel
+  const scriptUrl =
+    process.env.GLF_SHEET_WEBAPP_URL;
+
+  const secret =
+    process.env.GLF_API_SECRET;
 
   if (!scriptUrl || !secret) {
     return res.status(503).json({
       success: false,
-      error: "Welcome Kit Sheet is not configured"
+      error: "Sheet connection not configured"
     });
   }
 
+  // Check Google Apps Script Web App URL
   if (
     !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/
       .test(scriptUrl)
   ) {
     return res.status(503).json({
       success: false,
-      error: "Invalid Google Apps Script URL"
+      error: "Invalid Sheet service URL"
     });
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, 20000);
 
   try {
+
+    // Send data to Welcome Kit LIVE Apps Script
     const response = await fetch(scriptUrl, {
       method: "POST",
+
       headers: {
         "Content-Type": "text/plain;charset=utf-8"
       },
+
       body: JSON.stringify({
         ...data,
-        secret
+        secret: secret
       }),
+
       redirect: "follow",
       signal: controller.signal
     });
 
     const raw = await response.text();
+
     let result;
 
     try {
       result = JSON.parse(raw);
-    } catch (_) {
+    } catch (error) {
       throw new Error(
-        "Google Apps Script did not return JSON"
+        "Apps Script did not return JSON"
       );
     }
 
     if (!response.ok || !result.success) {
       throw new Error(
-        result.error || "Sheet rejected submission"
+        result.error ||
+        "Sheet rejected the submission"
       );
     }
 
     return res.status(200).json({
-      success: true,
-      message: "Welcome Kit details received"
+      success: true
     });
 
   } catch (error) {
+
     console.error(
-      "GLF Welcome Kit submission failed:",
+      "[GLF Welcome Kit]",
       error.message
     );
 
     return res.status(502).json({
       success: false,
-      error: "Unable to save Welcome Kit details"
+      error:
+        "Unable to save your details. Please try again."
     });
 
   } finally {
-    clearTimeout(timer);
+    clearTimeout(timeout);
   }
 };
