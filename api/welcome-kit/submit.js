@@ -2,15 +2,21 @@
 "use strict";
 
 /*
- GLF RESERVE — COMMON LINK WELCOME KIT API
+  GLF RESERVE — WELCOME KIT SUBMISSION API
 
- Public form:
- https://glfreserve.com/welcome-kit/
+  Website:
+  https://glfreserve.com/welcome-kit/
 
- Saves to Akash's Google Sheet2 through
- GLF Reserve - Welcome Kit LIVE Apps Script.
+  Destination:
+  Akash's GLF Reserve - Join List
+  Sheet2
 
- No personal token required.
+  Features:
+  - Common form link for all users
+  - No personal token required
+  - Validate form details
+  - One submission per email
+  - Prevent duplicate records
 */
 
 const VALID_FRAGRANCES = new Set([
@@ -22,6 +28,11 @@ const VALID_FRAGRANCES = new Set([
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+
+// =======================================
+// 1. CLEAN INPUT
+// =======================================
+
 function clean(value, maxLength = 500) {
   if (typeof value !== "string") {
     return "";
@@ -30,11 +41,16 @@ function clean(value, maxLength = 500) {
   return value.trim().slice(0, maxLength);
 }
 
+
+// =======================================
+// 2. MAIN SUBMISSION HANDLER
+// =======================================
+
 module.exports = async function handler(req, res) {
 
   res.setHeader("Cache-Control", "no-store");
 
-  // Only POST requests
+  // Allow only POST
   if (req.method !== "POST") {
     return res.status(405).json({
       success: false,
@@ -50,11 +66,11 @@ module.exports = async function handler(req, res) {
   ) {
     return res.status(400).json({
       success: false,
-      error: "Invalid request"
+      error: "Invalid form submission"
     });
   }
 
-  // Basic honeypot spam protection
+  // Basic spam protection
   if (req.body.company) {
     return res.status(400).json({
       success: false,
@@ -62,7 +78,7 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // Collect form data
+  // Collect and normalize data
   const data = {
     name: clean(req.body.fullName, 120),
 
@@ -82,7 +98,7 @@ module.exports = async function handler(req, res) {
     country: clean(req.body.country, 100)
   };
 
-  // Validate fields
+  // Validate required fields
   if (
     !data.name ||
     !EMAIL_RE.test(data.email) ||
@@ -99,7 +115,7 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // Private environment variables from Vercel
+  // Read private settings from Vercel
   const scriptUrl =
     process.env.GLF_SHEET_WEBAPP_URL;
 
@@ -109,18 +125,18 @@ module.exports = async function handler(req, res) {
   if (!scriptUrl || !secret) {
     return res.status(503).json({
       success: false,
-      error: "Sheet connection not configured"
+      error: "Welcome Kit Sheet connection not configured"
     });
   }
 
-  // Check Google Apps Script Web App URL
+  // Validate Google Apps Script Web App URL
   if (
     !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/
       .test(scriptUrl)
   ) {
     return res.status(503).json({
       success: false,
-      error: "Invalid Sheet service URL"
+      error: "Invalid Google Apps Script URL"
     });
   }
 
@@ -132,7 +148,7 @@ module.exports = async function handler(req, res) {
 
   try {
 
-    // Send data to Welcome Kit LIVE Apps Script
+    // Send data to Akash's Sheet2 Apps Script
     const response = await fetch(scriptUrl, {
       method: "POST",
 
@@ -157,25 +173,41 @@ module.exports = async function handler(req, res) {
       result = JSON.parse(raw);
     } catch (error) {
       throw new Error(
-        "Apps Script did not return JSON"
+        "Google Apps Script did not return JSON"
       );
     }
 
+    // ===================================
+    // DUPLICATE EMAIL CHECK
+    // ===================================
+
+    if (result.errorCode === "ALREADY_SUBMITTED") {
+      return res.status(409).json({
+        success: false,
+        error:
+          "Your Welcome Gift has already been confirmed. Only one submission is allowed per email address."
+      });
+    }
+
+    // Check all other errors
     if (!response.ok || !result.success) {
       throw new Error(
         result.error ||
-        "Sheet rejected the submission"
+        "Google Sheet rejected the submission"
       );
     }
 
+    // Successfully saved in Sheet2
     return res.status(200).json({
-      success: true
+      success: true,
+      message:
+        "Your Welcome Gift details have been received successfully."
     });
 
   } catch (error) {
 
     console.error(
-      "[GLF Welcome Kit]",
+      "[GLF Welcome Kit Submission]",
       error.message
     );
 
