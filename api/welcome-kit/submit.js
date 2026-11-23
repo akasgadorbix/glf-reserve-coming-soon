@@ -8,15 +8,12 @@
   https://glfreserve.com/welcome-kit/
 
   Destination:
-  Akash's GLF Reserve - Join List
-  Sheet2
+  Akash's GLF Reserve - Join List / Sheet2
 
-  Features:
-  - Common form link for all users
-  - No personal token required
-  - Validate form details
-  - One submission per email
-  - Prevent duplicate records
+  - Common link for all members
+  - Mobile number with country code
+  - Form validation
+  - Duplicate email protection via Apps Script
 */
 
 const VALID_FRAGRANCES = new Set([
@@ -28,10 +25,8 @@ const VALID_FRAGRANCES = new Set([
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-
-// =======================================
-// 1. CLEAN INPUT
-// =======================================
+// Examples: +91 9876543210, +1 2025550123
+const PHONE_RE = /^\+[1-9]\d{0,3}\s+[0-9() .-]+$/;
 
 function clean(value, maxLength = 500) {
   if (typeof value !== "string") {
@@ -41,16 +36,28 @@ function clean(value, maxLength = 500) {
   return value.trim().slice(0, maxLength);
 }
 
+function validPhone(value) {
+  if (!PHONE_RE.test(value)) {
+    return false;
+  }
+
+  const numberOfDigits =
+    value.replace(/\D/g, "").length;
+
+  return (
+    numberOfDigits >= 7 &&
+    numberOfDigits <= 15
+  );
+}
 
 // =======================================
-// 2. MAIN SUBMISSION HANDLER
+// MAIN SUBMISSION HANDLER
 // =======================================
 
 module.exports = async function handler(req, res) {
 
   res.setHeader("Cache-Control", "no-store");
 
-  // Allow only POST
   if (req.method !== "POST") {
     return res.status(405).json({
       success: false,
@@ -58,7 +65,6 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // Validate request body
   if (
     !req.body ||
     typeof req.body !== "object" ||
@@ -70,7 +76,7 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // Basic spam protection
+  // Spam honeypot
   if (req.body.company) {
     return res.status(400).json({
       success: false,
@@ -78,7 +84,10 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // Collect and normalize data
+  // =======================================
+  // COLLECT FORM DATA
+  // =======================================
+
   const data = {
     name: clean(req.body.fullName, 120),
 
@@ -86,6 +95,9 @@ module.exports = async function handler(req, res) {
       .toLowerCase(),
 
     fragrance: clean(req.body.fragrance, 60),
+
+    // NEW: Mobile number including country code
+    phone: clean(req.body.phone, 40),
 
     address: clean(req.body.address, 500),
 
@@ -98,7 +110,10 @@ module.exports = async function handler(req, res) {
     country: clean(req.body.country, 100)
   };
 
-  // Validate required fields
+  // =======================================
+  // VALIDATE REQUIRED FIELDS
+  // =======================================
+
   if (
     !data.name ||
     !EMAIL_RE.test(data.email) ||
@@ -115,7 +130,19 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // Read private settings from Vercel
+  // Validate mobile number separately
+  if (!validPhone(data.phone)) {
+    return res.status(400).json({
+      success: false,
+      error:
+        "Please enter a valid mobile number with country code"
+    });
+  }
+
+  // =======================================
+  // GOOGLE APPS SCRIPT CONNECTION
+  // =======================================
+
   const scriptUrl =
     process.env.GLF_SHEET_WEBAPP_URL;
 
@@ -125,11 +152,11 @@ module.exports = async function handler(req, res) {
   if (!scriptUrl || !secret) {
     return res.status(503).json({
       success: false,
-      error: "Welcome Kit Sheet connection not configured"
+      error:
+        "Welcome Kit Sheet connection not configured"
     });
   }
 
-  // Validate Google Apps Script Web App URL
   if (
     !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/
       .test(scriptUrl)
@@ -148,7 +175,7 @@ module.exports = async function handler(req, res) {
 
   try {
 
-    // Send data to Akash's Sheet2 Apps Script
+    // Send ALL data, including phone, to Apps Script
     const response = await fetch(scriptUrl, {
       method: "POST",
 
@@ -177,9 +204,9 @@ module.exports = async function handler(req, res) {
       );
     }
 
-    // ===================================
-    // DUPLICATE EMAIL CHECK
-    // ===================================
+    // =======================================
+    // DUPLICATE EMAIL RESPONSE
+    // =======================================
 
     if (result.errorCode === "ALREADY_SUBMITTED") {
       return res.status(409).json({
@@ -189,7 +216,6 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Check all other errors
     if (!response.ok || !result.success) {
       throw new Error(
         result.error ||
@@ -197,7 +223,10 @@ module.exports = async function handler(req, res) {
       );
     }
 
-    // Successfully saved in Sheet2
+    // =======================================
+    // SUCCESS
+    // =======================================
+
     return res.status(200).json({
       success: true,
       message:
